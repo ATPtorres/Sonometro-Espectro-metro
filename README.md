@@ -46,3 +46,5 @@ Salida: `app/build/outputs/apk/debug/app-debug.apk`.
 - Java 17, Android SDK (min 26, target 35), sin librerías de UI ni servicios en la nube.
 - AGP 8.13.2 / Gradle 8.13, compilación reproducible en GitHub Actions.
 - Código abierto. Ninguna petición de red ni permiso de Internet en el manifiesto.
+
+- El silencio digital del emulador o un micrófono silenciado se señala como **sin lectura válida**; nunca se presenta como dB SPL medidos.

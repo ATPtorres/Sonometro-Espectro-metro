@@ -30,23 +30,36 @@ PY
 )
 echo "Start button at: $coords"
 adb shell input tap $coords
-sleep 9
-adb shell pidof "$package" >/dev/null || { echo 'APP_CLOSED_ON_START'; adb logcat -d -s AndroidRuntime:E; exit 1; }
-dump_ui
-adb exec-out screencap -p > smoke-results/after-start.png
-python3 - <<'PY'
+# El volcado uiautomator puede reflejar un fotograma anterior al último clic.
+# Reintentar y sincronizar con la UI evita falsos negativos en un emulador lento.
+ui_ok=0
+for attempt in 1 2 3 4; do
+  sleep 5
+  adb shell pidof "$package" >/dev/null || { echo 'APP_CLOSED_ON_START'; adb logcat -d -s AndroidRuntime:E; exit 1; }
+  dump_ui
+  if python3 - <<'PYUI'
 import xml.etree.ElementTree as ET
 root = ET.parse('smoke-results/hierarchy.xml').getroot()
 labels = [n.attrib.get('text','') for n in root.iter('node')]
-for text in labels: print(text)
 if not any('DETENER MEDICIÓN' in text for text in labels):
-    raise SystemExit('START_DID_NOT_CHANGE_TO_STOP')
-if any('ERROR DE CAPTURA' in text for text in labels):
-    raise SystemExit('AUDIO_CAPTURE_FAILED')
+    raise SystemExit(1)
 if not any('RECIBIENDO PCM' in text for text in labels):
-    raise SystemExit('NO_PCM_RECEIVED')
+    raise SystemExit(2)
+if any('ERROR DE CAPTURA' in text for text in labels):
+    raise SystemExit(3)
 print('UI + AUDIO EMULATOR SMOKE PASS')
-PY
+PYUI
+  then
+    ui_ok=1
+    break
+  fi
+done
+adb exec-out screencap -p > smoke-results/after-start.png
+if [ "$ui_ok" -ne 1 ]; then
+  echo 'CAPTURE_UI_DID_NOT_REACH_RUNNING_STATE'
+  adb logcat -d -s AndroidRuntime:E
+  exit 1
+fi
 adb logcat -d -s AndroidRuntime:E > smoke-results/crashes.log
 if grep -q 'FATAL EXCEPTION' smoke-results/crashes.log; then
   cat smoke-results/crashes.log

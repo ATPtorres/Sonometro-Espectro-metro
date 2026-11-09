@@ -251,6 +251,27 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
     }
 
     @Override public void onSample(AudioEngine.Sample reading) {
+        // Una entrada silenciada por privacidad puede devolver PCM todo a cero.
+        // Ese 0 digital NO equivale a un nivel sonoro físico de 10 dB SPL.
+        if (reading.meanSquare <= 1e-12) {
+            silentWindows++;
+            if (silentWindows >= 4) {
+                bigValue.setText("--.-");
+                bigValue.setTextColor(MUTED);
+                refText.setText("Sin señal PCM válida");
+                adviceText.setText("El micrófono devuelve silencio digital. Comprueba permisos, privacidad y que no esté ocupado por otra app.");
+                levelBar.setLevel(55, false);
+                spectrum.reset();
+                dominantValue.setText("-- Hz");
+            }
+            pathBadge.setText(reading.sourceName + " · captura activa; señal digital nula");
+            sourceValue.setText(String.format(Locale.US, "%s · %d Hz", reading.inputName, reading.sampleRate));
+            rawValue.setText("≤ -120 dBFS · silencio digital");
+            stateBadge.setText("●  RECIBIENDO PCM");
+            stateBadge.setTextColor(YELLOW);
+            return;
+        }
+        silentWindows = 0;
         // Acumular TODAS las muestras PCM recibidas, no solo los cuadros mostrados.
         // Para Leq se promedian energías, nunca directamente valores logarítmicos dB.
         energySum += reading.meanSquare * reading.frames;
@@ -266,14 +287,8 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
         avgValue.setText(String.format(Locale.US, "%.1f", leq));
         minValue.setText(String.format(Locale.US, "%.1f", Math.max(0, Math.min(140, minDb))));
         maxValue.setText(String.format(Locale.US, "%.1f", Math.max(0, Math.min(140, maxDb))));
-        silentWindows = reading.meanSquare < 1e-12 ? silentWindows + 1 : 0;
-        if (silentWindows >= 6) {
-            refText.setText("Sin señal PCM del micrófono");
-            adviceText.setText("Comprueba el interruptor de privacidad del micrófono, el permiso y que otra app no esté usando el audio.");
-        } else {
-            refText.setText(referenceFor(db));
-            adviceText.setText(adviceFor(db));
-        }
+        refText.setText(referenceFor(db));
+        adviceText.setText(adviceFor(db));
         levelBar.setLevel(db, true);
         history.add(db);
         history.setStatistics(Math.max(0, minDb), leq, Math.min(140, maxDb));
