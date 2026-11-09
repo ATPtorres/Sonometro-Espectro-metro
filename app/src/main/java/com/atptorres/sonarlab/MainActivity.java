@@ -159,6 +159,7 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
         legend.addView(legendLabel("●  Precaución", YELLOW), withMargins(-2, -2, 13, 0, 0, 0));
         legend.addView(legendLabel("●  Intenso", RED), withMargins(-2, -2, 13, 0, 0, 0));
         temporalCard.addView(legend, withTop(-1, -2, 6));
+        temporalCard.addView(text("Líneas punteadas: mínimo · promedio Leq · máximo", 10, MUTED, false), withTop(-1, -2, 9));
 
         // FFT
         LinearLayout spectrumCard = card();
@@ -255,6 +256,7 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
         adviceText.setText(adviceFor(db));
         levelBar.setLevel(db, true);
         history.add(db);
+        history.setStatistics(minDb, leq, maxDb);
         spectrum.update(reading.bands, db);
         dominantValue.setText(reading.dominantHz > 0 ? formatHz(reading.dominantHz) : "-- Hz");
         String signalRoute = reading.unprocessed ? "PCM UNPROCESSED · sin efectos solicitados" :

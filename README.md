@@ -8,7 +8,7 @@ Aplicación Android nativa, ligera, privada y sin anuncios. Usa el **micrófono 
 - En teléfonos sin soporte `UNPROCESSED`, usa `MIC`, intenta desactivar AGC/supresión de ruido/eco y **muestra la advertencia de posible DSP**.
 - Nivel RMS en **dBFS**, convertido a **dB SPL estimados** mediante offset manual configurable (valor inicial +130 dB, *no calibración certificada*).
 - Promedio **Leq energético** de la sesión, mínimo y máximo de los niveles RMS medidos.
-- Historial temporal con segmentos verdes (<70 dB), amarillos (70–84,9 dB) y rojos (≥85 dB).
+- Historial temporal con líneas punteadas de mínimo/Leq/máximo y segmentos verdes (<70 dB), amarillos (70–84,9 dB) y rojos (≥85 dB).
 - Analizador FFT de 4096 puntos, bandas logarítmicas entre ~40 Hz y 16 kHz y frecuencia dominante.
 - Referencias orientativas de biblioteca, conversación, tráfico, moto, concierto y sirena, según **nivel**, sin pretender reconocer sonidos.
 - Funciona totalmente **offline**, sin grabar ni transmitir audio. La medición se detiene al salir de la pantalla.

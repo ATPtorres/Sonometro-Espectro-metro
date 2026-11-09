@@ -2,6 +2,7 @@ package com.atptorres.sonarlab;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.view.View;
 
@@ -14,6 +15,7 @@ public final class HistoryChartView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final ArrayDeque<Float> levels = new ArrayDeque<>();
     private static final int CAPACITY = 540;
+    private float sessionMin = Float.NaN, sessionLeq = Float.NaN, sessionMax = Float.NaN;
     private final int teal = 0xff35d8a0;
     private final int amber = 0xfff2c45a;
     private final int coral = 0xfff47676;
@@ -26,7 +28,18 @@ public final class HistoryChartView extends View {
         invalidate();
     }
 
-    public void reset() { levels.clear(); invalidate(); }
+    public void setStatistics(double minimum, double leq, double maximum) {
+        sessionMin = (float) minimum;
+        sessionLeq = (float) leq;
+        sessionMax = (float) maximum;
+        invalidate();
+    }
+
+    public void reset() {
+        levels.clear();
+        sessionMin = sessionLeq = sessionMax = Float.NaN;
+        invalidate();
+    }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -58,6 +71,11 @@ public final class HistoryChartView extends View {
         String end = "AHORA";
         canvas.drawText(end, x1 - paint.measureText(end), getHeight() - dp(5), paint);
 
+        // Líneas de estadísticas acumuladas, superpuestas al historial instantáneo.
+        drawReference(canvas, sessionMin, x0, x1, y0, y1, 0x774cdbb2);
+        drawReference(canvas, sessionLeq, x0, x1, y0, y1, 0xa8e8f3ff);
+        drawReference(canvas, sessionMax, x0, x1, y0, y1, 0x99f47676);
+
         List<Float> data = new ArrayList<>(levels);
         if (data.size() < 2) return;
         paint.setStyle(Paint.Style.STROKE);
@@ -74,6 +92,18 @@ public final class HistoryChartView extends View {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(color(data.get(data.size() - 1)));
         canvas.drawCircle(x1, y(data.get(data.size() - 1), y0, y1), dp(3), paint);
+    }
+
+    private void drawReference(Canvas canvas, float db, float left, float right,
+                               float top, float bottom, int color) {
+        if (Float.isNaN(db)) return;
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1));
+        paint.setPathEffect(new DashPathEffect(new float[]{dp(5), dp(5)}, 0));
+        paint.setColor(color);
+        canvas.drawLine(left, y(db, top, bottom), right, y(db, top, bottom), paint);
+        paint.setPathEffect(null);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private float y(float value, float top, float bottom) {
