@@ -1,4 +1,4 @@
-name: Compilar APK Android
+name: Compilar y probar APK Android
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: SonarLab APK debug
+    name: Compilar APK y pruebas de señal
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,21 +20,64 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Instalar plataforma Android
+      - name: Instalar SDK Android
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)
-          if [ -z "$SDKMANAGER" ]; then echo 'sdkmanager no disponible'; exit 1; fi
           "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Compilar APK
-        run: gradle --no-daemon --stacktrace assembleDebug
-      - name: Verificar APK
-        run: test -s app/build/outputs/apk/debug/app-debug.apk
+      - name: Verificar RMS, FFT, Nyquist y Leq
+        run: gradle --no-daemon testDebugUnitTest
+      - name: Compilar APK debug
+        run: gradle --no-daemon assembleDebug
+      - name: Comprobar APK
+        run: |
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk | head -n 8
       - uses: actions/upload-artifact@v4
         with:
           name: SonarLab-APK-instalable
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SonarLab-pruebas-FFT
+          path: app/build/test-results/testDebugUnitTest/
+          if-no-files-found: error
+          retention-days: 30
+
+  emulator-smoke:
+    name: Prueba real de arranque y captura en emulador
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: SonarLab-APK-instalable
+          path: app/build/outputs/apk/debug/
+      - name: Activar KVM si el runner lo permite
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: bash .github/scripts/smoke-test.sh
+      - name: Guardar capturas y logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SonarLab-diagnostico-emulador
+          path: smoke-results/
+          if-no-files-found: ignore
+          retention-days: 10

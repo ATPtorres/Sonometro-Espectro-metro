@@ -36,15 +36,16 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
 
     private AudioEngine audio;
     private TextView bigValue, stateBadge, refText, adviceText, avgValue, minValue, maxValue;
-    private TextView sourceValue, calibrationValue, dominantValue, durationValue, pathBadge;
+    private TextView sourceValue, calibrationValue, dominantValue, durationValue, pathBadge, rawValue;
     private Button recordingButton;
     private LevelBarView levelBar;
     private HistoryChartView history;
     private SpectrumView spectrum;
-    private int sampleCount;
+    private long totalFrames;
+    private int silentWindows;
     private double minDb = Double.POSITIVE_INFINITY;
     private double maxDb = Double.NEGATIVE_INFINITY;
-    private double energySum;
+    private double energySum; // suma de cuadrados de PCM normalizado, ponderada por muestras
     private long startedAt;
     private double offsetDb;
 
@@ -62,6 +63,13 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
+        // Android 15 (target SDK 35) dibuja detrás de las barras del sistema.
+        // Ajustar insets evita superponer contenido y botones con barra de estado/navegación.
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            scroll.setPadding(0, insets.getSystemWindowInsetTop(), 0,
+                    insets.getSystemWindowInsetBottom());
+            return insets;
+        });
         scroll.setBackgroundColor(BG);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -183,6 +191,9 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
         diagnosisCard.addView(text("ENTRADA DE AUDIO", 10, MUTED, true), withTop(-1, -2, 15));
         sourceValue = text("Micrófono no activado", 14, TEXT, false);
         diagnosisCard.addView(sourceValue, withTop(-1, -2, 5));
+        diagnosisCard.addView(text("SEÑAL ORIGINAL / dBFS", 10, MUTED, true), withTop(-1, -2, 15));
+        rawValue = text("-- dBFS", 14, TEXT, false);
+        diagnosisCard.addView(rawValue, withTop(-1, -2, 5));
         diagnosisCard.addView(text("OFFSET DE CALIBRACIÓN", 10, MUTED, true), withTop(-1, -2, 15));
         calibrationValue = text("", 14, TEXT, false);
         diagnosisCard.addView(calibrationValue, withTop(-1, -2, 5));
@@ -240,32 +251,45 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
     }
 
     @Override public void onSample(AudioEngine.Sample reading) {
+        // Acumular TODAS las muestras PCM recibidas, no solo los cuadros mostrados.
+        // Para Leq se promedian energías, nunca directamente valores logarítmicos dB.
+        energySum += reading.meanSquare * reading.frames;
+        totalFrames += reading.frames;
+        minDb = Math.min(minDb, reading.minDbFs + offsetDb);
+        maxDb = Math.max(maxDb, reading.maxDbFs + offsetDb);
         double db = Math.max(0, Math.min(140, reading.dbFs + offsetDb));
-        sampleCount++;
-        minDb = Math.min(minDb, db);
-        maxDb = Math.max(maxDb, db);
-        energySum += Math.pow(10, db / 10.0);
-        double leq = 10 * Math.log10(energySum / sampleCount);
+        double leq = Math.max(0, Math.min(140,
+                SignalAnalyzer.dbFs(energySum / totalFrames) + offsetDb));
         int severity = db < 70 ? GREEN : db < 85 ? YELLOW : RED;
         bigValue.setText(String.format(Locale.US, "%.1f", db));
         bigValue.setTextColor(severity);
         avgValue.setText(String.format(Locale.US, "%.1f", leq));
-        minValue.setText(String.format(Locale.US, "%.1f", minDb));
-        maxValue.setText(String.format(Locale.US, "%.1f", maxDb));
-        refText.setText(referenceFor(db));
-        adviceText.setText(adviceFor(db));
+        minValue.setText(String.format(Locale.US, "%.1f", Math.max(0, Math.min(140, minDb))));
+        maxValue.setText(String.format(Locale.US, "%.1f", Math.max(0, Math.min(140, maxDb))));
+        silentWindows = reading.meanSquare < 1e-12 ? silentWindows + 1 : 0;
+        if (silentWindows >= 6) {
+            refText.setText("Sin señal PCM del micrófono");
+            adviceText.setText("Comprueba el interruptor de privacidad del micrófono, el permiso y que otra app no esté usando el audio.");
+        } else {
+            refText.setText(referenceFor(db));
+            adviceText.setText(adviceFor(db));
+        }
         levelBar.setLevel(db, true);
         history.add(db);
-        history.setStatistics(minDb, leq, maxDb);
+        history.setStatistics(Math.max(0, minDb), leq, Math.min(140, maxDb));
         spectrum.update(reading.bands, db);
         dominantValue.setText(reading.dominantHz > 0 ? formatHz(reading.dominantHz) : "-- Hz");
-        String signalRoute = reading.unprocessed ? "PCM UNPROCESSED · sin efectos solicitados" :
-                "PCM MIC · Android podría aplicar DSP";
+        String signalRoute = reading.requestedUnprocessed ?
+                "UNPROCESSED solicitado · PCM directo" :
+                reading.sourceName + " · posible DSP del fabricante";
         pathBadge.setText(signalRoute);
-        pathBadge.setTextColor(reading.unprocessed ? GREEN : YELLOW);
-        sourceValue.setText(reading.inputName);
+        pathBadge.setTextColor(reading.requestedUnprocessed ? GREEN : YELLOW);
+        sourceValue.setText(String.format(Locale.US, "%s · %d Hz", reading.inputName, reading.sampleRate));
+        rawValue.setText(String.format(Locale.US, "%.1f dBFS (sin calibrar)", reading.dbFs));
         long seconds = (SystemClock.elapsedRealtime() - startedAt) / 1000;
         durationValue.setText(String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60));
+        stateBadge.setText("●  RECIBIENDO PCM");
+        stateBadge.setTextColor(GREEN);
     }
 
     @Override public void onFailure(String detail) {
@@ -298,7 +322,8 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
     }
 
     private void clearSession() {
-        sampleCount = 0;
+        totalFrames = 0;
+        silentWindows = 0;
         energySum = 0;
         minDb = Double.POSITIVE_INFINITY;
         maxDb = Double.NEGATIVE_INFINITY;
@@ -316,11 +341,12 @@ public final class MainActivity extends Activity implements AudioEngine.Listener
         recordingButton.setText("▶  INICIAR MEDICIÓN");
         stateBadge.setText("●  EN ESPERA");
         stateBadge.setTextColor(MUTED);
-        if (sampleCount == 0) {
+        if (totalFrames == 0) {
             bigValue.setText("--.-");
             bigValue.setTextColor(TEXT);
             refText.setText("Sin lectura · inicia para medir el entorno");
             levelBar.setLevel(55, false);
+            if (rawValue != null) rawValue.setText("-- dBFS");
         }
     }
 
